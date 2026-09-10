@@ -94,8 +94,8 @@ jobs:
       - name: Patch medialibrary for AGP 9
         working-directory: ${{ env.BUILD_DIR }}
         run: |
-          sed -i '/^apply plugin: "com.vanniktech.maven.publish"$/d' medialibrary/build.gradle
-          sed -i '/^apply from:.*publish.gradle$/d' medialibrary/build.gradle
+          sed -i -E '/com\.vanniktech\.maven\.publish/d' medialibrary/build.gradle
+          sed -i -E '/apply[[:space:]]+from:.*publish\.gradle/d' medialibrary/build.gradle
           sed -i '/^    \/\/ Make per-variant version code$/,/^    }$/d' medialibrary/build.gradle
           ! grep -nE 'libraryVariants|vanniktech.maven.publish|publish.gradle' medialibrary/build.gradle
 
