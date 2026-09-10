@@ -98,6 +98,8 @@ jobs:
           sed -i -E '/apply[[:space:]]+from:.*publish\.gradle/d' medialibrary/build.gradle
           sed -i '/^    \/\/ Make per-variant version code$/,/^    }$/d' medialibrary/build.gradle
           ! grep -nE 'libraryVariants|vanniktech.maven.publish|publish.gradle' medialibrary/build.gradle
+          sed -i "s/id 'kotlin-android'/id 'org.jetbrains.kotlin.android'/" application/app/build.gradle
+          grep -q "id 'org.jetbrains.kotlin.android'" application/app/build.gradle
 
       # The current VLC Android repository has no checked-in Gradle wrapper.
       # buildsystem/compile.sh is the source of truth: it downloads Gradle
