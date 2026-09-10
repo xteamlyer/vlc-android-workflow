@@ -109,6 +109,9 @@ jobs:
           if ! grep -q 'android.builtInKotlin=true' buildsystem/compile.sh; then
             sed -i '/android.useAndroidX=true/ a echo android.builtInKotlin=true >> gradle.properties' buildsystem/compile.sh
           fi
+          if ! grep -q 'android.disallowKotlinSourceSets=false' buildsystem/compile.sh; then
+            sed -i '/android.builtInKotlin=true/ a echo android.disallowKotlinSourceSets=false >> gradle.properties' buildsystem/compile.sh
+          fi
 
       # The current VLC Android repository has no checked-in Gradle wrapper.
       # buildsystem/compile.sh is the source of truth: it downloads Gradle
