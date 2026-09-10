@@ -12,6 +12,9 @@ on:
 
 env:
   BUILD_DIR: vlc-android
+  # Jetifier transforming libvlc-all-4.0.0-eap29.aar can exceed Gradle's
+  # default heap on the GitHub-hosted runner.
+  GRADLE_OPTS: "-Xmx6g -XX:MaxMetaspaceSize=1g"
 
 jobs:
   build:
@@ -48,32 +51,27 @@ jobs:
           echo "ANDROID_SDK=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
-      # VLC 3 still needs NDK 21 for 32-bit ABIs because those builds
-      # retain Android API 17 compatibility. Its current native build,
-      # however, requires NDK 27-29 for every 64-bit ABI.
-      - name: Install NDK (VLC3 32-bit)
-        if: matrix.vlc_major == 3 && (matrix.abi == 'arm' || matrix.abi == 'x86')
+      # VLC3 keeps NDK 21 for 32-bit ABIs for API 17 compatibility,
+      # but 64-bit VLC3 builds require a modern NDK.
+      - name: Install NDK
         run: |
-          sdkmanager --install "ndk;21.4.7075529"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> "$GITHUB_ENV"
+          if [ "${{ matrix.vlc_major }}" = "4" ]; then
+            NDK_VERSION="28.2.13676358"
+          elif [ "${{ matrix.abi }}" = "arm64" ] || [ "${{ matrix.abi }}" = "x86_64" ]; then
+            NDK_VERSION="28.2.13676358"
+          else
+            NDK_VERSION="21.4.7075529"
+          fi
 
-      - name: Install NDK (VLC3 64-bit)
-        if: matrix.vlc_major == 3 && (matrix.abi == 'arm64' || matrix.abi == 'x86_64')
-        run: |
-          sdkmanager --install "ndk;28.2.13676358"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-
-      - name: Install NDK (VLC4)
-        if: matrix.vlc_major == 4
-        run: |
-          sdkmanager --install "ndk;28.2.13676358"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          sdkmanager --install "ndk;${NDK_VERSION}"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "NDK_VERSION=${NDK_VERSION}" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            automake ant autopoint gettext cmake build-essential libtool-bin \
+            automake ant autopoint gettext gperf cmake build-essential libtool-bin \
             patch pkg-config protobuf-compiler ragel subversion unzip git \
             flex python3 wget
 
@@ -92,9 +90,9 @@ jobs:
           path: |
             ${{ env.BUILD_DIR }}/libvlcjni
             ${{ env.BUILD_DIR }}/.dbg
-          key: vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-${{ steps.rev.outputs.short_sha }}
+          key: vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-ndk${{ env.NDK_VERSION }}-${{ steps.rev.outputs.short_sha }}
           restore-keys: |
-            vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-
+            vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-ndk${{ env.NDK_VERSION }}-
 
       # The current upstream medialibrary script still uses the removed
       # AGP libraryVariants API and configures Maven publication although
