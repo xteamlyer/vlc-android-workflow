@@ -12,7 +12,6 @@ on:
 
 env:
   BUILD_DIR: vlc-android
-  GRADLE_PIN_VERSION: 8.11.1
 
 jobs:
   build:
@@ -41,31 +40,25 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Set Android SDK environment
+        run: |
+          echo "ANDROID_SDK=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
       - name: Install NDK (VLC3)
         if: matrix.vlc_major == 3
         run: |
           sdkmanager --install "ndk;21.4.7075529"
-          echo "ANDROID_NDK_VERSION=21.4.7075529" >> "$GITHUB_ENV"
           echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> "$GITHUB_ENV"
 
       - name: Install NDK (VLC4)
         if: matrix.vlc_major == 4
         run: |
           sdkmanager --install "ndk;28.2.13676358"
-          echo "ANDROID_NDK_VERSION=28.2.13676358" >> "$GITHUB_ENV"
           echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-
-      # build.gradle reads this file while evaluating the root project. It must
-      # exist before any Gradle command, including `gradle wrapper`.
-      - name: Create Android local.properties
-        working-directory: ${{ env.BUILD_DIR }}
-        run: |
-          cat > local.properties <<EOF
-          sdk.dir=${ANDROID_SDK_ROOT}
-          android.ndkFullVersion=${ANDROID_NDK_VERSION}
-          android.ndkPath=${ANDROID_NDK}
-          EOF
 
       - name: Install build dependencies
         run: |
@@ -84,7 +77,7 @@ jobs:
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "date=$DATE" >> "$GITHUB_OUTPUT"
 
-      - name: Cache libvlcjni (contains vlc/ sources + contribs)
+      - name: Cache libvlcjni and VLC build outputs
         uses: actions/cache@v6
         with:
           path: |
@@ -94,29 +87,15 @@ jobs:
           restore-keys: |
             vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-
 
-      # Do not run `gradle wrapper`: that command evaluates build.gradle and
-      # fails if local.properties is absent. Updating the distribution URL is
-      # sufficient and keeps the checked-in wrapper jar untouched.
-      - name: Pin Gradle wrapper to a known-working version
-        working-directory: ${{ env.BUILD_DIR }}
-        run: |
-          test -f gradle/wrapper/gradle-wrapper.properties
-          sed -i -E \
-            "s#^distributionUrl=.*#distributionUrl=https\\\\://services.gradle.org/distributions/gradle-${GRADLE_PIN_VERSION}-bin.zip#" \
-            gradle/wrapper/gradle-wrapper.properties
-          chmod a+x gradlew
-          grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties
-
+      # The current VLC Android repository has no checked-in Gradle wrapper.
+      # buildsystem/compile.sh is the source of truth: it downloads Gradle
+      # 9.3.1, verifies its SHA-256, creates gradlew and initializes
+      # local.properties before evaluating build.gradle.
       - name: Decode signing keystore
         working-directory: ${{ env.BUILD_DIR }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
-          {
-            echo "keyStoreFile=$(pwd)/release.keystore"
-            echo "storealias=vlc"
-            echo "android.enableJetifier=true"
-            echo "android.useAndroidX=true"
-          } > gradle.properties
+          printf '%s' "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+          test -s release.keystore
 
       - name: Build signed release for ${{ matrix.abi }} (VLC${{ matrix.vlc_major }})
         working-directory: ${{ env.BUILD_DIR }}
@@ -128,19 +107,26 @@ jobs:
           if [ "${{ matrix.vlc_major }}" = "4" ]; then
             EXTRA_ARGS="-vlc4"
           fi
-          ./buildsystem/compile.sh -a ${{ matrix.abi }} --signrelease $EXTRA_ARGS
+          ./buildsystem/compile.sh \
+            -a "${{ matrix.abi }}" \
+            --signrelease \
+            -s "$(pwd)/release.keystore" \
+            -p "$PASSWORD_KEYSTORE" \
+            $EXTRA_ARGS
 
       - name: Collect artifacts
         working-directory: ${{ env.BUILD_DIR }}
         run: |
           mkdir -p ../out
-          find application -path '*/build/outputs/apk/*ignedRelease*/*.apk' -exec cp {} ../out/ \
-            \;
+          find application -path '*/build/outputs/apk/*ignedRelease*/*.apk' -exec cp {} ../out/ \;
           cd ../out
+          found=0
           for f in *.apk; do
             [ -f "$f" ] || continue
+            found=1
             mv "$f" "vlc-android-nightly-${{ steps.rev.outputs.date }}-${{ steps.rev.outputs.short_sha }}-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-${f}"
           done
+          test "$found" -eq 1
           ls -la
 
       - name: Upload artifact
