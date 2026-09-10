@@ -98,6 +98,9 @@ jobs:
           sed -i -E '/apply[[:space:]]+from:.*publish\.gradle/d' medialibrary/build.gradle
           sed -i '/^    \/\/ Make per-variant version code$/,/^    }$/d' medialibrary/build.gradle
           ! grep -nE 'libraryVariants|vanniktech.maven.publish|publish.gradle' medialibrary/build.gradle
+          # AGP 9 removed the legacy applicationVariants API. APK naming and
+          # ABI split selection are not needed by this artifact collection.
+          sed -i '/^    \/\/ make per-variant version code$/,/^    }$/d' application/app/build.gradle
           # AGP 9 provides Kotlin itself. External Kotlin Android/KAPT
           # plugins try to register the same `kotlin` extension and fail.
           find application -name build.gradle -type f -print0 \
