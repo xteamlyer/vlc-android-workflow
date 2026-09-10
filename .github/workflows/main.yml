@@ -87,6 +87,18 @@ jobs:
           restore-keys: |
             vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-
 
+      # The current upstream medialibrary script still uses the removed
+      # AGP libraryVariants API and configures Maven publication although
+      # this workflow only assembles the application. Keep the build green
+      # with AGP 9.1.1 by removing those CI-irrelevant legacy hooks.
+      - name: Patch medialibrary for AGP 9
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          sed -i '/^apply plugin: "com.vanniktech.maven.publish"$/d' medialibrary/build.gradle
+          sed -i '/^apply from:.*publish.gradle$/d' medialibrary/build.gradle
+          sed -i '/^    \/\/ Make per-variant version code$/,/^    }$/d' medialibrary/build.gradle
+          ! grep -nE 'libraryVariants|vanniktech.maven.publish|publish.gradle' medialibrary/build.gradle
+
       # The current VLC Android repository has no checked-in Gradle wrapper.
       # buildsystem/compile.sh is the source of truth: it downloads Gradle
       # 9.3.1, verifies its SHA-256, creates gradlew and initializes
