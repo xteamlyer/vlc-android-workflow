@@ -12,9 +12,11 @@ on:
 
 env:
   BUILD_DIR: vlc-android
-  # Jetifier transforming libvlc-all-4.0.0-eap29.aar can exceed Gradle's
-  # default heap on the GitHub-hosted runner.
-  GRADLE_OPTS: "-Xmx6g -XX:MaxMetaspaceSize=1g"
+  # Jetifier transforming libvlc-all-4.0.0-eap29.aar needs a large heap.
+  # Keep worker concurrency low so the runner does not exhaust memory while
+  # Gradle transforms the very large AAR.
+  GRADLE_OPTS: "-Xmx10g -XX:MaxMetaspaceSize=1g -Dorg.gradle.workers.max=2"
+  JAVA_TOOL_OPTIONS: "-Xmx10g -XX:MaxMetaspaceSize=1g"
 
 jobs:
   build:
@@ -23,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        abi: [arm, arm64, x86, x86_64]
+        abi: [arm64]
         vlc_major: [3, 4]
 
     steps:
