@@ -150,6 +150,9 @@ jobs:
           PASSWORD_KEYSTORE: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           chmod +x buildsystem/compile.sh
+          # get-vlc.sh applies custom commits to the freshly cloned VLC tree.
+          git config --global user.name "VLC Android CI"
+          git config --global user.email "vlc-android-ci@users.noreply.github.com"
           EXTRA_ARGS=""
           if [ "${{ matrix.vlc_major }}" = "4" ]; then
             EXTRA_ARGS="-vlc4"
