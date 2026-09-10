@@ -12,6 +12,7 @@ on:
 
 env:
   BUILD_DIR: vlc-android
+  GRADLE_PIN_VERSION: 8.11.1
 
 jobs:
   build:
@@ -21,6 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         abi: [arm, arm64, x86, x86_64]
+        vlc_major: [3, 4]
 
     steps:
       - name: Checkout vlc-android
@@ -40,11 +42,19 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK
+      - name: Install NDK (VLC3)
+        if: matrix.vlc_major == 3
         run: |
-          sdkmanager --install "ndk;28.0.13004108"
+          sdkmanager --install "ndk;21.4.7075529"
           echo "ANDROID_SDK=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/28.0.13004108" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> "$GITHUB_ENV"
+
+      - name: Install NDK (VLC4)
+        if: matrix.vlc_major == 4
+        run: |
+          sdkmanager --install "ndk;28.2.13676358"
+          echo "ANDROID_SDK=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -69,9 +79,19 @@ jobs:
           path: |
             ${{ env.BUILD_DIR }}/libvlcjni
             ${{ env.BUILD_DIR }}/.dbg
-          key: vlc-contrib-${{ matrix.abi }}-${{ steps.rev.outputs.short_sha }}-ndk28.0.13004108
+          key: vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-${{ steps.rev.outputs.short_sha }}
           restore-keys: |
-            vlc-contrib-${{ matrix.abi }}-
+            vlc-contrib-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-
+
+      - name: Pin gradlew to a known-working version
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          curl -L "https://services.gradle.org/distributions/gradle-${GRADLE_PIN_VERSION}-bin.zip" -o gradle-pin.zip
+          unzip -q gradle-pin.zip
+          export PATH="$(pwd)/gradle-${GRADLE_PIN_VERSION}/bin:$PATH"
+          gradle wrapper --gradle-version "${GRADLE_PIN_VERSION}"
+          chmod a+x gradlew
+          rm -rf "gradle-${GRADLE_PIN_VERSION}" gradle-pin.zip
 
       - name: Decode signing keystore
         working-directory: ${{ env.BUILD_DIR }}
@@ -82,13 +102,17 @@ jobs:
           echo "android.enableJetifier=true" >> gradle.properties
           echo "android.useAndroidX=true" >> gradle.properties
 
-      - name: Build signed release for ${{ matrix.abi }}
+      - name: Build signed release for ${{ matrix.abi }} (VLC${{ matrix.vlc_major }})
         working-directory: ${{ env.BUILD_DIR }}
         env:
           PASSWORD_KEYSTORE: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           chmod +x buildsystem/compile.sh
-          ./buildsystem/compile.sh -a ${{ matrix.abi }} --signrelease
+          EXTRA_ARGS=""
+          if [ "${{ matrix.vlc_major }}" = "4" ]; then
+            EXTRA_ARGS="-vlc4"
+          fi
+          ./buildsystem/compile.sh -a ${{ matrix.abi }} --signrelease $EXTRA_ARGS
 
       - name: Collect artifacts
         working-directory: ${{ env.BUILD_DIR }}
@@ -98,14 +122,14 @@ jobs:
           cd ../out
           for f in *.apk; do
             [ -f "$f" ] || continue
-            mv "$f" "vlc-android-nightly-${{ steps.rev.outputs.date }}-${{ steps.rev.outputs.short_sha }}-${{ matrix.abi }}-${f}"
+            mv "$f" "vlc-android-nightly-${{ steps.rev.outputs.date }}-${{ steps.rev.outputs.short_sha }}-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-${f}"
           done
           ls -la
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vlc-android-nightly-${{ matrix.abi }}-${{ github.run_id }}
+          name: vlc-android-nightly-vlc${{ matrix.vlc_major }}-${{ matrix.abi }}-${{ github.run_id }}
           path: out/*.apk
           retention-days: 14
           if-no-files-found: error
