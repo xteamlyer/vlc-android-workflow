@@ -48,11 +48,20 @@ jobs:
           echo "ANDROID_SDK=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
-      - name: Install NDK (VLC3)
-        if: matrix.vlc_major == 3
+      # VLC 3 still needs NDK 21 for 32-bit ABIs because those builds
+      # retain Android API 17 compatibility. Its current native build,
+      # however, requires NDK 27-29 for every 64-bit ABI.
+      - name: Install NDK (VLC3 32-bit)
+        if: matrix.vlc_major == 3 && (matrix.abi == 'arm' || matrix.abi == 'x86')
         run: |
           sdkmanager --install "ndk;21.4.7075529"
           echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> "$GITHUB_ENV"
+
+      - name: Install NDK (VLC3 64-bit)
+        if: matrix.vlc_major == 3 && (matrix.abi == 'arm64' || matrix.abi == 'x86_64')
+        run: |
+          sdkmanager --install "ndk;28.2.13676358"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
       - name: Install NDK (VLC4)
         if: matrix.vlc_major == 4
@@ -64,7 +73,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            automake ant autopoint cmake build-essential libtool-bin \
+            automake ant autopoint gettext cmake build-essential libtool-bin \
             patch pkg-config protobuf-compiler ragel subversion unzip git \
             flex python3 wget
 
