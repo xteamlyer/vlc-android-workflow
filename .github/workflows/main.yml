@@ -1,0 +1,143 @@
+name: VLC Android Nightly Release Build
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      vlc_android_ref:
+        description: 'vlc-android branch/tag/commit to build'
+        required: false
+        default: 'master'
+
+env:
+  BUILD_DIR: vlc-android
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64, armeabi, x86, x86_64]
+
+    steps:
+      - name: Checkout vlc-android
+        uses: actions/checkout@v5
+        with:
+          repository: videolan/vlc-android
+          ref: ${{ github.event.inputs.vlc_android_ref || 'master' }}
+          submodules: recursive
+          path: ${{ env.BUILD_DIR }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          sdkmanager --install "ndk;28.0.13004108"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/28.0.13004108" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.0.13004108" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autopoint gettext ragel liblua5.2-dev \
+            libtool automake autoconf pkg-config \
+            build-essential zip unzip git wget \
+            ant flex bison protobuf-compiler libprotobuf-dev \
+            python3-pip meson ninja-build
+
+      - name: Get vlc submodule commit hash
+        id: vlc_sha
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          VLC_SHA=$(git rev-parse HEAD:vlc)
+          echo "sha=$VLC_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Cache contrib build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.BUILD_DIR }}/vlc/contrib/${{ matrix.abi }}*
+            ${{ env.BUILD_DIR }}/libvlc/jni/libs/${{ matrix.abi }}
+            ${{ env.BUILD_DIR }}/libvlc/jni/vlc/contrib
+          key: vlc-contrib-${{ matrix.abi }}-${{ steps.vlc_sha.outputs.sha }}-ndk28.0.13004108
+          restore-keys: |
+            vlc-contrib-${{ matrix.abi }}-
+
+      - name: Compute short revision
+        id: rev
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y%m%d)
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Decode signing keystore
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+
+      - name: Build release APK for ${{ matrix.abi }}
+        working-directory: ${{ env.BUILD_DIR }}
+        env:
+          KEYSTORE_FILE: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+          KEYSTORE_ALIAS_PASSWORD: ${{ secrets.KEYSTORE_ALIAS_PASSWORD }}
+        run: |
+          chmod +x compile.sh buildsystem/compile-libvlc.sh
+          ./compile.sh -a ${{ matrix.abi }} release
+
+      - name: Rename artifact
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          mkdir -p ../out
+          find . -path '*/build/outputs/apk/release/*.apk' -exec cp {} ../out/ \;
+          cd ../out
+          for f in *.apk; do
+            mv "$f" "vlc-android-nightly-${{ steps.rev.outputs.date }}-${{ steps.rev.outputs.short_sha }}-${{ matrix.abi }}-${f}"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vlc-android-nightly-${{ matrix.abi }}-${{ github.run_id }}
+          path: out/*.apk
+          retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: vlc-android-nightly-*
+          merge-multiple: true
+
+      - name: Compute release tag
+        id: tag
+        run: |
+          DATE=$(date -u +%Y%m%d)
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-${{ steps.tag.outputs.date }}-${{ github.run_number }}
+          name: VLC Android Nightly ${{ steps.tag.outputs.date }} (run ${{ github.run_number }})
+          prerelease: true
+          files: artifacts/*.apk
