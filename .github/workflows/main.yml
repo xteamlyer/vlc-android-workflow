@@ -119,6 +119,20 @@ jobs:
           if ! grep -q 'android.disallowKotlinSourceSets=false' buildsystem/compile.sh; then
             sed -i '/android.builtInKotlin=true/ a echo android.disallowKotlinSourceSets=false >> gradle.properties' buildsystem/compile.sh
           fi
+          # compile.sh clones libvlcjni during the build step. Run this
+          # standalone cleanup immediately before compile.sh invokes Gradle.
+          cat > ci-patch-libvlcjni.sh <<'PATCH_LIBVLCJNI'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          find libvlcjni -name build.gradle -type f -print0 \
+            | xargs -0 sed -i -E \
+              -e '/com\.vanniktech\.maven\.publish/d' \
+              -e '/apply[[:space:]]+from:.*publish\.gradle/d' \
+              -e '/^    \/\/ Make per-variant version code$/,/^    }$/d' \
+              -e '/(kotlin-android|org\.jetbrains\.kotlin\.android|kotlin-kapt)/d'
+          PATCH_LIBVLCJNI
+          chmod +x ci-patch-libvlcjni.sh
+          sed -i '/^# GRADLE #$/i ./ci-patch-libvlcjni.sh' buildsystem/compile.sh
 
       # The current VLC Android repository has no checked-in Gradle wrapper.
       # buildsystem/compile.sh is the source of truth: it downloads Gradle
