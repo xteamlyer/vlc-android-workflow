@@ -101,6 +101,13 @@ jobs:
           # AGP 9 removed the legacy applicationVariants API. APK naming and
           # ABI split selection are not needed by this artifact collection.
           sed -i '/^    \/\/ make per-variant version code$/,/^    }$/d' application/app/build.gradle
+          # Remove the same obsolete variant/publication hooks from every
+          # library module, including remote-access-client.
+          find application -name build.gradle -type f -print0 \
+            | xargs -0 sed -i -E \
+              -e '/com\.vanniktech\.maven\.publish/d' \
+              -e '/apply[[:space:]]+from:.*publish\.gradle/d' \
+              -e '/^    \/\/ Make per-variant version code$/,/^    }$/d'
           # AGP 9 provides Kotlin itself. External Kotlin Android/KAPT
           # plugins try to register the same `kotlin` extension and fail.
           find application -name build.gradle -type f -print0 \
